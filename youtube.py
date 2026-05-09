@@ -11,7 +11,7 @@ load_dotenv()
 def build_youtube_agent():
     return Agent(
         name="YouTube Agent",
-        model = Groq(id="llama-3.1-70b-versatile"),
+        model = Groq(id="llama-3.3-70b-versatile"),
         tools=[YouTubeTools()],
         instructions=dedent("""\
 You are an expert YouTube content analyst and insight extractor 🎓
