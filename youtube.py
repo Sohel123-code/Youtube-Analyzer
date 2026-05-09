@@ -199,6 +199,12 @@ def analyze_video(agent: Agent, video_url: str):
     if transcript.startswith("ERROR:"):
         return transcript
 
+    # Limit transcript length to avoid exceeding Groq TPM limits
+    # ~25,000 chars is roughly 6,000 - 7,000 tokens.
+    MAX_CHARS = 25000
+    if len(transcript) > MAX_CHARS:
+        transcript = transcript[:MAX_CHARS] + "\n\n[TRANSCRIPT TRUNCATED DUE TO LENGTH LIMITS]"
+
     prompt = f"Analyze this YouTube video.\n\nVideo URL: {video_url}\nTranscript Language: {lang}\n\n--- TRANSCRIPT ---\n{transcript}\n--- END TRANSCRIPT ---"
     response = agent.run(prompt)
     return response.content
