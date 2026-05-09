@@ -3,6 +3,8 @@ import re
 from agno.agent import Agent
 from agno.models.groq import Groq
 from dotenv import load_dotenv
+import requests
+import yt_dlp
 from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
@@ -21,6 +23,46 @@ def extract_video_id(url: str) -> str:
             return match.group(1)
     return ""
 
+def get_transcript_ytdlp(video_url: str) -> tuple[str, str]:
+    """Fallback method using yt-dlp to bypass IP blocks."""
+    ydl_opts = {
+        'skip_download': True,
+        'quiet': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(video_url, download=False)
+            subs = info.get('subtitles', {})
+            auto_subs = info.get('automatic_captions', {})
+            
+            # Combine manual and auto
+            all_subs = {**auto_subs, **subs}
+            if not all_subs:
+                return "ERROR: No transcripts available (yt-dlp fallback).", ""
+                
+            # Try to get english first, otherwise get first available
+            target_lang = 'en' if 'en' in all_subs else list(all_subs.keys())[0]
+            sub_formats = all_subs[target_lang]
+            
+            # Get json3 format
+            json3_url = next((s['url'] for s in sub_formats if s.get('ext') == 'json3'), None)
+            if not json3_url:
+                return "ERROR: Could not find json3 transcript format.", ""
+                
+            res = requests.get(json3_url).json()
+            lines = []
+            for event in res.get('events', []):
+                if 'segs' in event:
+                    text = "".join([seg.get('utf8', '') for seg in event['segs']]).strip()
+                    if text and text != '\n':
+                        start_ms = event.get('tStartMs', 0)
+                        minutes = int(start_ms // 60000)
+                        seconds = int((start_ms % 60000) // 1000)
+                        lines.append(f"[{minutes:02d}:{seconds:02d}] {text}")
+            
+            return "\n".join(lines), target_lang
+    except Exception as e:
+        return f"ERROR: Fallback fetch failed: {str(e)}", ""
 
 def get_transcript(video_url: str) -> tuple[str, str]:
     """Fetch transcript/captions for a YouTube video.
@@ -63,7 +105,11 @@ def get_transcript(video_url: str) -> tuple[str, str]:
             lines.append(f"[{minutes:02d}:{seconds:02d}] {entry.text}")
         return "\n".join(lines), lang
     except Exception as e:
-        return f"ERROR: Could not fetch transcript. {str(e)}", ""
+        error_msg = str(e)
+        if "YouTube is blocking requests" in error_msg or "blocked by YouTube" in error_msg:
+            # Use yt-dlp fallback
+            return get_transcript_ytdlp(video_url)
+        return f"ERROR: Could not fetch transcript. {error_msg}", ""
 
 
 ANALYSIS_INSTRUCTIONS = dedent("""\
